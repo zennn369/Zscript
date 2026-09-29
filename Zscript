@@ -1,0 +1,1102 @@
+--[[
+    Utility Panel (UI modern, tab, bisa di-hide)
+    Tipe   : LocalScript (StarterPlayerScripts / StarterGui)
+    Fitur  : WalkSpeed, Fly, Infinite Jump, Anti AFK,
+             Egg ESP, Egg Panel (daftar + teleport), Teleport
+    Hide   : tombol "—" atau tekan RightShift
+    Tutup  : tombol "×" (semua fitur dimatikan & UI dihapus)
+
+    Untuk testing / tool developer di game milik sendiri.
+]]
+
+--------------------------------------------------------------------
+-- CONFIG
+--------------------------------------------------------------------
+local CONFIG = {
+	Keywords   = { "common egg","coral egg","deep egg","reef egg","tidal egg","abyss egg","trench egg","sovereign egg","celestial egg","eternal egg","kraken glory egg" },              -- kata kunci nama objek telur (lowercase)
+	ToggleKey  = Enum.KeyCode.RightShift,
+	UpdateRate = 0.15,
+}
+
+--------------------------------------------------------------------
+-- SERVICES
+--------------------------------------------------------------------
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService     = game:GetService("TweenService")
+local VirtualUser      = game:GetService("VirtualUser")
+
+local player    = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+--------------------------------------------------------------------
+-- THEME
+--------------------------------------------------------------------
+local THEME = {
+	Bg      = Color3.fromRGB(18, 18, 24),
+	Side    = Color3.fromRGB(23, 23, 31),
+	Card    = Color3.fromRGB(30, 30, 41),
+	Stroke  = Color3.fromRGB(55, 55, 75),
+	Text    = Color3.fromRGB(235, 235, 245),
+	SubText = Color3.fromRGB(150, 150, 170),
+	Accent  = Color3.fromRGB(255, 190, 60),
+	Off     = Color3.fromRGB(60, 60, 78),
+	Danger  = Color3.fromRGB(235, 80, 80),
+}
+
+--------------------------------------------------------------------
+-- STATE
+--------------------------------------------------------------------
+local settings = {
+	SpeedEnabled = false,
+	Speed        = 50,
+	Fly          = false,
+	FlySpeed     = 60,
+	InfJump      = false,
+	AntiAFK      = true,
+
+	ESP         = true,
+	Highlight   = true,
+	ShowName    = true,
+	ShowDist    = true,
+	MaxDistance = 500,
+}
+
+local DEFAULT_SPEED = 16
+local connections   = {}
+local destroyed     = false
+local savedPosition = nil
+
+--------------------------------------------------------------------
+-- HELPERS
+--------------------------------------------------------------------
+local function create(class, props, children)
+	local inst = Instance.new(class)
+	for k, v in pairs(props or {}) do
+		inst[k] = v
+	end
+	for _, child in ipairs(children or {}) do
+		child.Parent = inst
+	end
+	return inst
+end
+
+local function corner(r)
+	return create("UICorner", { CornerRadius = UDim.new(0, r) })
+end
+
+local function stroke(color, thickness)
+	return create("UIStroke", {
+		Color = color or THEME.Stroke,
+		Thickness = thickness or 1,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+	})
+end
+
+local function tween(obj, props, t)
+	TweenService:Create(obj, TweenInfo.new(t or 0.15, Enum.EasingStyle.Quad), props):Play()
+end
+
+local orderCounter = 0
+local function nextOrder()
+	orderCounter += 1
+	return orderCounter
+end
+
+local function getHumanoid()
+	local c = player.Character
+	return c and c:FindFirstChildOfClass("Humanoid")
+end
+
+local function getRoot()
+	local c = player.Character
+	return c and c:FindFirstChild("HumanoidRootPart")
+end
+
+local function colorFromName(name)
+	local hash = 0
+	for i = 1, #name do
+		hash = (hash * 31 + string.byte(name, i)) % 360
+	end
+	return Color3.fromHSV(hash / 360, 0.65, 1)
+end
+
+local function teleportTo(pos)
+	local root = getRoot()
+	if root then
+		root.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0))
+		return true
+	end
+	return false
+end
+
+--------------------------------------------------------------------
+-- GUI ROOT
+--------------------------------------------------------------------
+local gui = create("ScreenGui", {
+	Name = "UtilityPanel",
+	ResetOnSpawn = false,
+	ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+	Parent = playerGui,
+})
+local espFolder = create("Folder", { Name = "ESPObjects", Parent = gui })
+
+local function notify(text)
+	local t = create("TextLabel", {
+		Text = text,
+		Font = Enum.Font.GothamMedium,
+		TextSize = 13,
+		TextColor3 = THEME.Text,
+		BackgroundColor3 = THEME.Bg,
+		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UDim2.fromOffset(0, 32),
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -30),
+		ZIndex = 50,
+		Parent = gui,
+	}, {
+		corner(16),
+		stroke(THEME.Accent, 1),
+		create("UIPadding", { PaddingLeft = UDim.new(0, 16), PaddingRight = UDim.new(0, 16) }),
+	})
+	task.delay(2, function()
+		if t then t:Destroy() end
+	end)
+end
+
+--------------------------------------------------------------------
+-- MAIN WINDOW
+--------------------------------------------------------------------
+local main = create("Frame", {
+	Name = "Main",
+	Size = UDim2.fromOffset(480, 360),
+	Position = UDim2.new(0, 24, 0.5, -180),
+	BackgroundColor3 = THEME.Bg,
+	BorderSizePixel = 0,
+	Parent = gui,
+}, { corner(14), stroke(THEME.Stroke, 1.5) })
+
+local titleBar = create("Frame", {
+	Size = UDim2.new(1, 0, 0, 44),
+	BackgroundTransparency = 1,
+	Parent = main,
+})
+
+create("TextLabel", {
+	Text = "Z SCRIPT⚡",
+	Font = Enum.Font.GothamBold,
+	TextSize = 17,
+	TextColor3 = THEME.Text,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	BackgroundTransparency = 1,
+	Position = UDim2.fromOffset(14, 0),
+	Size = UDim2.new(1, -100, 1, 0),
+	Parent = titleBar,
+})
+
+local function headerButton(text, xOffset, hoverColor)
+	local btn = create("TextButton", {
+		Text = text,
+		Font = Enum.Font.GothamBold,
+		TextSize = 16,
+		TextColor3 = THEME.Text,
+		BackgroundColor3 = THEME.Card,
+		AutoButtonColor = false,
+		Size = UDim2.fromOffset(28, 28),
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, xOffset, 0, 8),
+		Parent = titleBar,
+	}, { corner(8) })
+	btn.MouseEnter:Connect(function() tween(btn, { BackgroundColor3 = hoverColor }) end)
+	btn.MouseLeave:Connect(function() tween(btn, { BackgroundColor3 = THEME.Card }) end)
+	return btn
+end
+
+local closeBtn = headerButton("×", -10, THEME.Danger)
+local hideBtn  = headerButton("—", -44, THEME.Off)
+
+-- Drag
+do
+	local dragging, dragStart, startPos
+	titleBar.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = main.Position
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then dragging = false end
+			end)
+		end
+	end)
+	table.insert(connections, UserInputService.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+			or input.UserInputType == Enum.UserInputType.Touch) then
+			local delta = input.Position - dragStart
+			main.Position = UDim2.new(
+				startPos.X.Scale, startPos.X.Offset + delta.X,
+				startPos.Y.Scale, startPos.Y.Offset + delta.Y
+			)
+		end
+	end))
+end
+
+-- Sidebar
+local sidebar = create("Frame", {
+	Position = UDim2.fromOffset(10, 48),
+	Size = UDim2.new(0, 104, 1, -58),
+	BackgroundColor3 = THEME.Side,
+	Parent = main,
+}, {
+	corner(10),
+	create("UIPadding", {
+		PaddingTop = UDim.new(0, 8), PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8),
+	}),
+	create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
+})
+
+local content = create("Frame", {
+	Position = UDim2.fromOffset(122, 48),
+	Size = UDim2.new(1, -132, 1, -58),
+	BackgroundTransparency = 1,
+	ClipsDescendants = true,
+	Parent = main,
+})
+
+--------------------------------------------------------------------
+-- TAB SYSTEM
+--------------------------------------------------------------------
+local pages, tabButtons = {}, {}
+local currentTab
+local onTabShown = {}
+
+local function selectTab(name)
+	for n, p in pairs(pages) do
+		p.Visible = (n == name)
+		tween(tabButtons[n], {
+			BackgroundColor3 = (n == name) and THEME.Accent or THEME.Side,
+			TextColor3 = (n == name) and Color3.fromRGB(20, 20, 20) or THEME.SubText,
+		})
+	end
+	currentTab = name
+	if onTabShown[name] then onTabShown[name]() end
+end
+
+local function createPage(name, icon)
+	local page = create("ScrollingFrame", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 3,
+		ScrollBarImageColor3 = THEME.Accent,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new(),
+		Visible = false,
+		Parent = content,
+	}, {
+		create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
+		create("UIPadding", { PaddingRight = UDim.new(0, 6) }),
+	})
+	pages[name] = page
+
+	local btn = create("TextButton", {
+		Text = icon .. "  " .. name,
+		Font = Enum.Font.GothamMedium,
+		TextSize = 13,
+		TextColor3 = THEME.SubText,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		BackgroundColor3 = THEME.Side,
+		AutoButtonColor = false,
+		Size = UDim2.new(1, 0, 0, 32),
+		LayoutOrder = nextOrder(),
+		Parent = sidebar,
+	}, {
+		corner(8),
+		create("UIPadding", { PaddingLeft = UDim.new(0, 10) }),
+	})
+	tabButtons[name] = btn
+
+	btn.MouseButton1Click:Connect(function()
+		selectTab(name)
+	end)
+
+	return page
+end
+
+--------------------------------------------------------------------
+-- UI COMPONENTS
+--------------------------------------------------------------------
+local function makeSection(parent, text)
+	return create("TextLabel", {
+		Text = string.upper(text),
+		Font = Enum.Font.GothamBold,
+		TextSize = 11,
+		TextColor3 = THEME.SubText,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 18),
+		LayoutOrder = nextOrder(),
+		Parent = parent,
+	}, { create("UIPadding", { PaddingLeft = UDim.new(0, 4) }) })
+end
+
+local function makeToggle(parent, text, default, callback)
+	local row = create("Frame", {
+		Size = UDim2.new(1, 0, 0, 34),
+		BackgroundColor3 = THEME.Card,
+		LayoutOrder = nextOrder(),
+		Parent = parent,
+	}, { corner(8) })
+
+	create("TextLabel", {
+		Text = text,
+		Font = Enum.Font.GothamMedium,
+		TextSize = 13,
+		TextColor3 = THEME.Text,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(12, 0),
+		Size = UDim2.new(1, -70, 1, 0),
+		Parent = row,
+	})
+
+	local sw = create("TextButton", {
+		Text = "",
+		AutoButtonColor = false,
+		Size = UDim2.fromOffset(40, 20),
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -10, 0.5, 0),
+		Parent = row,
+	}, { corner(10) })
+
+	local knob = create("Frame", {
+		Size = UDim2.fromOffset(16, 16),
+		AnchorPoint = Vector2.new(0, 0.5),
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		Parent = sw,
+	}, { corner(8) })
+
+	local state = default
+	sw.BackgroundColor3 = state and THEME.Accent or THEME.Off
+	knob.Position = state and UDim2.new(1, -18, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
+
+	sw.MouseButton1Click:Connect(function()
+		state = not state
+		tween(sw, { BackgroundColor3 = state and THEME.Accent or THEME.Off })
+		tween(knob, { Position = state and UDim2.new(1, -18, 0.5, 0) or UDim2.new(0, 2, 0.5, 0) })
+		callback(state)
+	end)
+end
+
+local function makeSlider(parent, text, min, max, default, callback)
+	local holder = create("Frame", {
+		Size = UDim2.new(1, 0, 0, 48),
+		BackgroundColor3 = THEME.Card,
+		LayoutOrder = nextOrder(),
+		Parent = parent,
+	}, { corner(8) })
+
+	create("TextLabel", {
+		Text = text,
+		Font = Enum.Font.GothamMedium,
+		TextSize = 13,
+		TextColor3 = THEME.Text,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(12, 5),
+		Size = UDim2.new(0.6, 0, 0, 16),
+		Parent = holder,
+	})
+
+	local valueLabel = create("TextLabel", {
+		Text = tostring(default),
+		Font = Enum.Font.GothamBold,
+		TextSize = 13,
+		TextColor3 = THEME.Accent,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		BackgroundTransparency = 1,
+		Position = UDim2.new(0.5, 0, 0, 5),
+		Size = UDim2.new(0.5, -12, 0, 16),
+		Parent = holder,
+	})
+
+	local hit = create("TextButton", {
+		Text = "",
+		AutoButtonColor = false,
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(12, 26),
+		Size = UDim2.new(1, -24, 0, 18),
+		Parent = holder,
+	})
+	local bar = create("Frame", {
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.fromScale(0, 0.5),
+		Size = UDim2.new(1, 0, 0, 6),
+		BackgroundColor3 = THEME.Off,
+		Parent = hit,
+	}, { corner(3) })
+	local fill = create("Frame", {
+		Size = UDim2.fromScale((default - min) / (max - min), 1),
+		BackgroundColor3 = THEME.Accent,
+		Parent = bar,
+	}, { corner(3) })
+
+	local dragging = false
+	local function setFromX(x)
+		local alpha = math.clamp((x - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
+		local value = math.floor(min + (max - min) * alpha)
+		fill.Size = UDim2.fromScale(alpha, 1)
+		valueLabel.Text = tostring(value)
+		callback(value)
+	end
+
+	hit.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			setFromX(input.Position.X)
+		end
+	end)
+	table.insert(connections, UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end))
+	table.insert(connections, UserInputService.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+			or input.UserInputType == Enum.UserInputType.Touch) then
+			setFromX(input.Position.X)
+		end
+	end))
+end
+
+local function makeButton(parent, text, callback, color)
+	local btn = create("TextButton", {
+		Text = text,
+		Font = Enum.Font.GothamBold,
+		TextSize = 13,
+		TextColor3 = Color3.fromRGB(20, 20, 20),
+		BackgroundColor3 = color or THEME.Accent,
+		AutoButtonColor = false,
+		Size = UDim2.new(1, 0, 0, 32),
+		LayoutOrder = nextOrder(),
+		Parent = parent,
+	}, { corner(8) })
+	btn.MouseEnter:Connect(function() tween(btn, { BackgroundTransparency = 0.2 }) end)
+	btn.MouseLeave:Connect(function() tween(btn, { BackgroundTransparency = 0 }) end)
+	btn.MouseButton1Click:Connect(callback)
+	return btn
+end
+
+local function makeListContainer(parent)
+	return create("Frame", {
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		LayoutOrder = nextOrder(),
+		Parent = parent,
+	}, {
+		create("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }),
+	})
+end
+
+local function makeRow(container, order, leftText, rightText, dotColor, btnText, btnCallback)
+	local row = create("Frame", {
+		Size = UDim2.new(1, 0, 0, 30),
+		BackgroundColor3 = THEME.Card,
+		LayoutOrder = order,
+		Parent = container,
+	}, { corner(8) })
+
+	local x = 10
+	if dotColor then
+		create("Frame", {
+			Size = UDim2.fromOffset(8, 8),
+			Position = UDim2.new(0, 10, 0.5, -4),
+			BackgroundColor3 = dotColor,
+			Parent = row,
+		}, { corner(4) })
+		x = 24
+	end
+
+	create("TextLabel", {
+		Text = leftText,
+		Font = Enum.Font.GothamMedium,
+		TextSize = 12,
+		TextColor3 = THEME.Text,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(x, 0),
+		Size = UDim2.new(1, -(x + 118), 1, 0),
+		Parent = row,
+	})
+
+	if rightText then
+		create("TextLabel", {
+			Text = rightText,
+			Font = Enum.Font.Gotham,
+			TextSize = 11,
+			TextColor3 = THEME.SubText,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			BackgroundTransparency = 1,
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -52, 0, 0),
+			Size = UDim2.fromOffset(62, 30),
+			Parent = row,
+		})
+	end
+
+	if btnText then
+		local b = create("TextButton", {
+			Text = btnText,
+			Font = Enum.Font.GothamBold,
+			TextSize = 11,
+			TextColor3 = Color3.fromRGB(20, 20, 20),
+			BackgroundColor3 = THEME.Accent,
+			AutoButtonColor = false,
+			Size = UDim2.fromOffset(40, 22),
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -6, 0.5, 0),
+			Parent = row,
+		}, { corner(6) })
+		b.MouseButton1Click:Connect(btnCallback)
+	end
+end
+
+local function clearContainer(container)
+	for _, c in ipairs(container:GetChildren()) do
+		if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
+	end
+end
+
+local function makeEmptyLabel(container, text)
+	create("TextLabel", {
+		Text = text,
+		Font = Enum.Font.Gotham,
+		TextSize = 12,
+		TextColor3 = THEME.SubText,
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 24),
+		Parent = container,
+	})
+end
+
+--------------------------------------------------------------------
+-- FEATURE: WALKSPEED
+--------------------------------------------------------------------
+table.insert(connections, RunService.Heartbeat:Connect(function()
+	if settings.SpeedEnabled then
+		local hum = getHumanoid()
+		if hum then hum.WalkSpeed = settings.Speed end
+	end
+end))
+
+local function setSpeedEnabled(v)
+	settings.SpeedEnabled = v
+	if not v then
+		local hum = getHumanoid()
+		if hum then hum.WalkSpeed = DEFAULT_SPEED end
+	end
+end
+
+--------------------------------------------------------------------
+-- FEATURE: FLY
+--------------------------------------------------------------------
+local flyObjs = {}
+local mobileUp, mobileDown = false, false
+
+local controls
+pcall(function()
+	controls = require(player:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule", 3)):GetControls()
+end)
+
+local function getMoveVector()
+	if controls then
+		local ok, v = pcall(function() return controls:GetMoveVector() end)
+		if ok and v then return v end
+	end
+	local x, z = 0, 0
+	if UserInputService:IsKeyDown(Enum.KeyCode.D) then x += 1 end
+	if UserInputService:IsKeyDown(Enum.KeyCode.A) then x -= 1 end
+	if UserInputService:IsKeyDown(Enum.KeyCode.S) then z += 1 end
+	if UserInputService:IsKeyDown(Enum.KeyCode.W) then z -= 1 end
+	return Vector3.new(x, 0, z)
+end
+
+local function stopFly()
+	for _, o in pairs(flyObjs) do o:Destroy() end
+	flyObjs = {}
+	local hum = getHumanoid()
+	if hum then hum.PlatformStand = false end
+end
+
+local function startFly()
+	stopFly()
+	local root, hum = getRoot(), getHumanoid()
+	if not root or not hum then return end
+
+	local bv = create("BodyVelocity", {
+		MaxForce = Vector3.new(1e9, 1e9, 1e9),
+		Velocity = Vector3.zero,
+		Parent = root,
+	})
+	local bg = create("BodyGyro", {
+		MaxTorque = Vector3.new(1e9, 1e9, 1e9),
+		P = 9e4,
+		CFrame = root.CFrame,
+		Parent = root,
+	})
+	hum.PlatformStand = true
+	flyObjs = { bv, bg }
+end
+
+-- Tombol naik/turun untuk mobile
+local flyPad = create("Frame", {
+	Size = UDim2.fromOffset(56, 116),
+	AnchorPoint = Vector2.new(1, 0.5),
+	Position = UDim2.new(1, -16, 0.5, 0),
+	BackgroundTransparency = 1,
+	Visible = false,
+	Parent = gui,
+})
+local function padButton(text, y, onDown)
+	local b = create("TextButton", {
+		Text = text,
+		Font = Enum.Font.GothamBold,
+		TextSize = 20,
+		TextColor3 = THEME.Text,
+		BackgroundColor3 = THEME.Bg,
+		BackgroundTransparency = 0.15,
+		AutoButtonColor = false,
+		Size = UDim2.fromOffset(56, 52),
+		Position = UDim2.fromOffset(0, y),
+		Parent = flyPad,
+	}, { corner(12), stroke(THEME.Accent, 1.5) })
+	b.InputBegan:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
+			onDown(true)
+		end
+	end)
+	b.InputEnded:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
+			onDown(false)
+		end
+	end)
+end
+padButton("▲", 0, function(v) mobileUp = v end)
+padButton("▼", 64, function(v) mobileDown = v end)
+
+local function setFly(v)
+	settings.Fly = v
+	flyPad.Visible = v and UserInputService.TouchEnabled
+	if v then startFly() else stopFly() end
+end
+
+table.insert(connections, RunService.RenderStepped:Connect(function()
+	if not settings.Fly then return end
+	local root = getRoot()
+	local bv, bg = flyObjs[1], flyObjs[2]
+	local cam = workspace.CurrentCamera
+	if not (root and bv and bg and bv.Parent and cam) then return end
+
+	local mv = getMoveVector()
+	local vert = 0
+	if UserInputService:IsKeyDown(Enum.KeyCode.Space) or UserInputService:IsKeyDown(Enum.KeyCode.E) or mobileUp then
+		vert += 1
+	end
+	if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.Q) or mobileDown then
+		vert -= 1
+	end
+
+	local dir = cam.CFrame.LookVector * -mv.Z + cam.CFrame.RightVector * mv.X + Vector3.new(0, vert, 0)
+	bv.Velocity = dir * settings.FlySpeed
+
+	local flat = Vector3.new(cam.CFrame.LookVector.X, 0, cam.CFrame.LookVector.Z)
+	if flat.Magnitude > 0.01 then
+		bg.CFrame = CFrame.lookAt(root.Position, root.Position + flat)
+	end
+end))
+
+table.insert(connections, player.CharacterAdded:Connect(function(char)
+	char:WaitForChild("HumanoidRootPart")
+	char:WaitForChild("Humanoid")
+	task.wait(0.3)
+	if destroyed then return end
+	if settings.Fly then startFly() end
+end))
+
+--------------------------------------------------------------------
+-- FEATURE: INFINITE JUMP
+--------------------------------------------------------------------
+table.insert(connections, UserInputService.JumpRequest:Connect(function()
+	if settings.InfJump then
+		local hum = getHumanoid()
+		if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+	end
+end))
+
+--------------------------------------------------------------------
+-- FEATURE: ANTI AFK
+--------------------------------------------------------------------
+table.insert(connections, player.Idled:Connect(function()
+	if settings.AntiAFK then
+		VirtualUser:CaptureController()
+		VirtualUser:ClickButton2(Vector2.new())
+	end
+end))
+
+--------------------------------------------------------------------
+-- FEATURE: EGG ESP
+--------------------------------------------------------------------
+local tracked = {}
+
+local function matchesKeyword(name)
+	name = string.lower(name)
+	for _, kw in ipairs(CONFIG.Keywords) do
+		if string.find(name, kw, 1, true) then return true end
+	end
+	return false
+end
+
+local function isEgg(inst)
+	if not (inst:IsA("Model") or inst:IsA("BasePart")) then return false end
+	if not matchesKeyword(inst.Name) then return false end
+
+	local char = player.Character
+	if char and inst:IsDescendantOf(char) then return false end
+
+	local p = inst.Parent
+	while p and p ~= workspace do
+		if p:IsA("Model") and matchesKeyword(p.Name) then return false end
+		p = p.Parent
+	end
+	return true
+end
+
+local function getAdorneePart(inst)
+	if inst:IsA("BasePart") then return inst end
+	return inst.PrimaryPart or inst:FindFirstChildWhichIsA("BasePart", true)
+end
+
+local function getPosition(inst)
+	if inst:IsA("Model") then return inst:GetPivot().Position end
+	return inst.Position
+end
+
+local function removeEgg(inst)
+	local data = tracked[inst]
+	if not data then return end
+	if data.highlight then data.highlight:Destroy() end
+	if data.billboard then data.billboard:Destroy() end
+	tracked[inst] = nil
+end
+
+local function addEgg(inst)
+	if tracked[inst] or destroyed then return end
+	local part = getAdorneePart(inst)
+	if not part then return end
+
+	local color = colorFromName(inst.Name)
+
+	local highlight = create("Highlight", {
+		Adornee = inst,
+		FillColor = color,
+		OutlineColor = Color3.new(1, 1, 1),
+		FillTransparency = 0.6,
+		DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
+		Parent = espFolder,
+	})
+
+	local label = create("TextLabel", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Font = Enum.Font.GothamBold,
+		TextSize = 14,
+		TextColor3 = color,
+		TextStrokeTransparency = 0.4,
+		Text = inst.Name,
+	})
+
+	local billboard = create("BillboardGui", {
+		Adornee = part,
+		Size = UDim2.fromOffset(160, 36),
+		StudsOffset = Vector3.new(0, 2.5, 0),
+		AlwaysOnTop = true,
+		ResetOnSpawn = false,
+		Parent = espFolder,
+	}, { label })
+
+	tracked[inst] = { highlight = highlight, billboard = billboard, label = label, color = color }
+end
+
+local function tryAdd(inst)
+	if isEgg(inst) then addEgg(inst) end
+end
+
+local function getOriginPosition()
+	local root = getRoot()
+	if root then return root.Position end
+	local cam = workspace.CurrentCamera
+	return cam and cam.CFrame.Position or Vector3.zero
+end
+
+local function updateESP()
+	local origin = getOriginPosition()
+	for inst, data in pairs(tracked) do
+		if not inst:IsDescendantOf(workspace) then
+			removeEgg(inst)
+		else
+			local dist = (getPosition(inst) - origin).Magnitude
+			local visible = settings.ESP and dist <= settings.MaxDistance
+
+			data.highlight.Enabled = visible and settings.Highlight
+			data.billboard.Enabled = visible
+
+			if visible then
+				local text = ""
+				if settings.ShowName then text = inst.Name end
+				if settings.ShowDist then
+					text = text .. (text ~= "" and "\n" or "") .. string.format("[%d studs]", dist)
+				end
+				data.label.Text = text
+			end
+		end
+	end
+end
+
+--------------------------------------------------------------------
+-- PAGE: PLAYER
+--------------------------------------------------------------------
+local pagePlayer = createPage("Player", "🏃")
+
+makeSection(pagePlayer, "Kecepatan")
+makeToggle(pagePlayer, "WalkSpeed", settings.SpeedEnabled, setSpeedEnabled)
+makeSlider(pagePlayer, "Kecepatan Jalan", 16, 200, settings.Speed, function(v) settings.Speed = v end)
+
+makeSection(pagePlayer, "Gerakan")
+makeToggle(pagePlayer, "Fly", settings.Fly, setFly)
+makeSlider(pagePlayer, "Kecepatan Terbang", 10, 250, settings.FlySpeed, function(v) settings.FlySpeed = v end)
+makeToggle(pagePlayer, "Infinite Jump", settings.InfJump, function(v) settings.InfJump = v end)
+
+makeSection(pagePlayer, "Utilitas")
+makeToggle(pagePlayer, "Anti AFK", settings.AntiAFK, function(v) settings.AntiAFK = v end)
+
+create("TextLabel", {
+	Text = "Fly: WASD + Space (naik) / Ctrl atau Q (turun).",
+	Font = Enum.Font.Gotham,
+	TextSize = 11,
+	TextColor3 = THEME.SubText,
+	TextWrapped = true,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	BackgroundTransparency = 1,
+	Size = UDim2.new(1, 0, 0, 28),
+	LayoutOrder = nextOrder(),
+	Parent = pagePlayer,
+}, { create("UIPadding", { PaddingLeft = UDim.new(0, 4) }) })
+
+--------------------------------------------------------------------
+-- PAGE: EGG
+--------------------------------------------------------------------
+local pageEgg = createPage("Egg", "🥚")
+
+makeSection(pageEgg, "Egg ESP")
+makeToggle(pageEgg, "Egg ESP", settings.ESP, function(v) settings.ESP = v end)
+makeToggle(pageEgg, "Highlight", settings.Highlight, function(v) settings.Highlight = v end)
+makeToggle(pageEgg, "Tampilkan Nama", settings.ShowName, function(v) settings.ShowName = v end)
+makeToggle(pageEgg, "Tampilkan Jarak", settings.ShowDist, function(v) settings.ShowDist = v end)
+makeSlider(pageEgg, "Jarak Maksimal", 100, 5000, settings.MaxDistance, function(v) settings.MaxDistance = v end)
+
+local eggCountLabel = makeSection(pageEgg, "Egg Panel (terdekat)")
+
+local eggList = makeListContainer(pageEgg)
+
+local function refreshEggList()
+	clearContainer(eggList)
+
+	local origin = getOriginPosition()
+	local entries = {}
+	for inst in pairs(tracked) do
+		table.insert(entries, {
+			inst = inst,
+			name = inst.Name,
+			dist = (getPosition(inst) - origin).Magnitude,
+			color = tracked[inst].color,
+		})
+	end
+	table.sort(entries, function(a, b) return a.dist < b.dist end)
+
+	eggCountLabel.Text = string.upper("Egg Panel (" .. #entries .. " ditemukan)")
+
+	if #entries == 0 then
+		makeEmptyLabel(eggList, "Belum ada egg terdeteksi")
+		return
+	end
+
+	for i = 1, math.min(#entries, 40) do
+		local e = entries[i]
+		makeRow(eggList, i, e.name, string.format("%d st", e.dist), e.color, "TP", function()
+			if e.inst:IsDescendantOf(workspace) and teleportTo(getPosition(e.inst)) then
+				notify("Teleport ke " .. e.name)
+			end
+		end)
+	end
+end
+onTabShown["Egg"] = refreshEggList
+
+--------------------------------------------------------------------
+-- PAGE: TELEPORT
+--------------------------------------------------------------------
+local pageTP = createPage("Teleport", "📍")
+
+makeSection(pageTP, "Posisi Tersimpan")
+makeButton(pageTP, "Simpan Posisi Saat Ini", function()
+	local root = getRoot()
+	if root then
+		savedPosition = root.Position
+		notify("Posisi disimpan")
+	end
+end)
+makeButton(pageTP, "Teleport ke Posisi Tersimpan", function()
+	if savedPosition then
+		teleportTo(savedPosition)
+		notify("Teleport ke posisi tersimpan")
+	else
+		notify("Belum ada posisi tersimpan")
+	end
+end, Color3.fromRGB(120, 200, 140))
+
+makeSection(pageTP, "Koordinat (X, Y, Z)")
+local coordBox = create("TextBox", {
+	Text = "",
+	PlaceholderText = "contoh: 0, 50, 0",
+	PlaceholderColor3 = THEME.SubText,
+	Font = Enum.Font.GothamMedium,
+	TextSize = 13,
+	TextColor3 = THEME.Text,
+	ClearTextOnFocus = false,
+	BackgroundColor3 = THEME.Card,
+	Size = UDim2.new(1, 0, 0, 34),
+	LayoutOrder = nextOrder(),
+	Parent = pageTP,
+}, { corner(8), stroke(THEME.Stroke, 1), create("UIPadding", { PaddingLeft = UDim.new(0, 10) }) })
+
+makeButton(pageTP, "Teleport ke Koordinat", function()
+	local nums = {}
+	for n in string.gmatch(coordBox.Text, "%-?%d+%.?%d*") do
+		table.insert(nums, tonumber(n))
+	end
+	if #nums >= 3 then
+		teleportTo(Vector3.new(nums[1], nums[2], nums[3]))
+		notify("Teleport ke koordinat")
+	else
+		notify("Format salah, pakai: X, Y, Z")
+	end
+end)
+makeButton(pageTP, "Salin Koordinat Saat Ini", function()
+	local root = getRoot()
+	if root then
+		local p = root.Position
+		coordBox.Text = string.format("%d, %d, %d", p.X, p.Y, p.Z)
+	end
+end, THEME.Off).TextColor3 = THEME.Text
+
+makeSection(pageTP, "Pemain")
+local playerList = makeListContainer(pageTP)
+
+local function refreshPlayerList()
+	clearContainer(playerList)
+	local count = 0
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= player then
+			count += 1
+			makeRow(playerList, count, plr.DisplayName, nil, nil, "TP", function()
+				local char = plr.Character
+				local root = char and char:FindFirstChild("HumanoidRootPart")
+				if root and teleportTo(root.Position) then
+					notify("Teleport ke " .. plr.DisplayName)
+				else
+					notify("Pemain tidak tersedia")
+				end
+			end)
+		end
+	end
+	if count == 0 then makeEmptyLabel(playerList, "Tidak ada pemain lain") end
+end
+onTabShown["Teleport"] = refreshPlayerList
+
+--------------------------------------------------------------------
+-- HIDE / SHOW
+--------------------------------------------------------------------
+local miniBtn = create("TextButton", {
+	Text = "Z",
+	Font = Enum.Font.GothamBold,
+	TextSize = 10,
+	TextColor3 = THEME.Text,
+	BackgroundColor3 = THEME.Bg,
+	AutoButtonColor = false,
+	Size = UDim2.fromOffset(100, 34),
+	Position = UDim2.new(0, 24, 0, 24),
+	Visible = false,
+	Parent = gui,
+}, { corner(17), stroke(THEME.Accent, 1.5) })
+
+local function setPanelVisible(visible)
+	main.Visible = visible
+	miniBtn.Visible = not visible
+end
+
+hideBtn.MouseButton1Click:Connect(function() setPanelVisible(false) end)
+miniBtn.MouseButton1Click:Connect(function() setPanelVisible(true) end)
+
+table.insert(connections, UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode == CONFIG.ToggleKey then
+		setPanelVisible(not main.Visible)
+	end
+end))
+
+--------------------------------------------------------------------
+-- CLOSE
+--------------------------------------------------------------------
+closeBtn.MouseButton1Click:Connect(function()
+	destroyed = true
+	settings.Fly = false
+	stopFly()
+	setSpeedEnabled(false)
+	for _, c in ipairs(connections) do c:Disconnect() end
+	for inst in pairs(tracked) do removeEgg(inst) end
+	gui:Destroy()
+end)
+
+--------------------------------------------------------------------
+-- INIT & LOOP
+--------------------------------------------------------------------
+for _, d in ipairs(workspace:GetDescendants()) do
+	tryAdd(d)
+end
+table.insert(connections, workspace.DescendantAdded:Connect(tryAdd))
+table.insert(connections, workspace.DescendantRemoving:Connect(removeEgg))
+
+local accum, listAccum = 0, 0
+table.insert(connections, RunService.Heartbeat:Connect(function(dt)
+	accum += dt
+	listAccum += dt
+	if accum >= CONFIG.UpdateRate then
+		accum = 0
+		updateESP()
+	end
+	if listAccum >= 1 and main.Visible then
+		listAccum = 0
+		if currentTab == "Egg" then
+			refreshEggList()
+		elseif currentTab == "Teleport" then
+			refreshPlayerList()
+		end
+	end
+end))
+
+-- Buka tab pertama
+selectTab("Player")
