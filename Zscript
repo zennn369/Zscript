@@ -13,7 +13,7 @@
 -- CONFIG
 --------------------------------------------------------------------
 local CONFIG = {
-	Keywords   = { "common egg","coral egg","deep egg","reef egg","tidal egg","abyss egg","trench egg","sovereign egg","celestial egg","eternal egg","kraken glory egg" },              -- kata kunci nama objek telur (lowercase)
+	Keywords   = { "common egg","coral egg","deep egg","reef egg","tidal egg","abyss egg","trench egg","sovereign egg","celestial egg","eternal egg","kraken glory egg","coral reef egg","glacial spiral egg","amethyst spiral egg"," azure crown egg","solar orbit egg","spikey egg","mamba egg","inferno egg" },              -- kata kunci nama objek telur (lowercase)
 	ToggleKey  = Enum.KeyCode.RightShift,
 	UpdateRate = 0.15,
 }
