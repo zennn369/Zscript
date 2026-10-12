@@ -496,7 +496,7 @@ toggle(playerPage, "WalkSpeed", false, function(enabled)
     state.speed = enabled
 end)
 
-slider(playerPage, "WalkSpeed value", 16, 100, state.speedValue, function(v)
+slider(playerPage, "WalkSpeed value", 16, 1000, state.speedValue, function(v)
     state.speedValue = v
     if state.speed then
         local hum = getHumanoid()
