@@ -18,7 +18,7 @@ local CONFIG = {
 	Keywords = {
 		"common egg", "coral egg", "deep egg", "reef egg", "tidal egg", "abyss egg",
 		"trench egg", "sovereign egg", "celestial egg", "eternal egg", "kraken glory egg",
-		"coralreef egg", "glacialspiral egg", "amethystspiral egg", "azure crown egg",
+		"coralreef egg", "glacialspiral egg", "amethystspiral egg", "azurecrown egg",
 		"solarorbit egg", "spikey egg", "mamba egg", "inferno egg","krakenglory egg","admin abuse seraph egg","kingkalolo egg","token",
 	},
 	ToggleKey      = Enum.KeyCode.RightShift,
