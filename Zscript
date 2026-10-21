@@ -19,7 +19,7 @@ local CONFIG = {
 		"common egg", "coral egg", "deep egg", "reef egg", "tidal egg", "abyss egg",
 		"trench egg", "sovereign egg", "celestial egg", "eternal egg", "kraken glory egg",
 		"coral reef egg", "glacial spiral egg", "amethyst spiral egg", "azure crown egg",
-		"solar orbit egg", "spikey egg", "mamba egg", "inferno egg",
+		"solar orbit egg", "spikey egg", "mamba egg", "inferno egg","kraken glory egg","admin abuse seraph egg","kingkalolo egg",
 	},
 	ToggleKey      = Enum.KeyCode.RightShift,
 	UpdateRate     = 0.15, -- interval update ESP (detik)
