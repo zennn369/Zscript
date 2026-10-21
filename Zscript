@@ -17,7 +17,7 @@ local CONFIG = {
 	-- kata kunci nama objek telur (besar/kecil bebas, spasi pinggir dibuang)
 	Keywords = {
 		"common egg", "coral egg", "deep egg", "reef egg", "tidal egg", "abyss egg",
-		"trench egg", "sovereign egg", "celestial egg", "eternal egg", "kraken glory egg",
+		"trench egg", "sovereign egg", "celestial egg", "eternal egg", "krakenglory egg",
 		"coralreef egg", "glacialspiral egg", "amethystspiral egg", "azurecrown egg",
 		"solarorbit egg", "spikey egg", "mamba egg", "inferno egg","krakenglory egg","admin abuse seraph egg","kingkalolo egg","token",
 	},
